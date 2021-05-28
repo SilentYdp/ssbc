@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/ssbc/lib/redis"
 	rd "github.com/gomodule/redigo/redis"
+	"strconv"
 )
 
 type ReVote struct{
@@ -27,7 +28,7 @@ func recBlockVoteRound2Handler(ctx *serverRequestContextImpl) (interface{}, erro
 	if err !=nil{
 		log.Info("ERR recBlockVoteRound2Handler: ", err)
 	}
-	log.Info("recBlockVoteRound2Handler: ",string(b))
+	//log.Info("recBlockVoteRound2Handler: ",string(b))
 	v := &ReVote{}
 	err = json.Unmarshal(b, v)
 	if err !=nil{
@@ -35,23 +36,35 @@ func recBlockVoteRound2Handler(ctx *serverRequestContextImpl) (interface{}, erro
 	}
 	conn := redis.Pool.Get()
 	defer conn.Close()
-	_,err = conn.Do("SADD",v.Hash+"round2", b)
+
+	log.Info("第二轮投票")
+	//_,err = conn.Do("SADD",v.Hash+"round2"+ctx.req.Host, ctx.req.RemoteAddr)
+	//if err != nil{
+	//	log.Info("recBlockVoteRound2Handler err SADD: ", err)
+	//}
+	//vc,err := redis.ToInt(conn.Do("SCARD",v.Hash+"round2"+ctx.req.Host))
+	//if err !=nil{
+	//	log.Info("recBlockVoteRound2Handler err:", err)
+	//}
+	timesS:=strconv.Itoa(times)
+	tIBS:=strconv.Itoa(transinblock)
+	_,err = conn.Do("LPUSH", v.Hash+"round2"+ctx.req.Host+timesS+tIBS, b)
 	if err != nil{
-		log.Info("recBlockVoteRound2Handler err SADD: ", err)
+		log.Info("recBlockVoteRound2Handler err LPUSH: ", err)
 	}
-	vc,err := redis.ToInt(conn.Do("SCARD",v.Hash+"round2"))
-	if err !=nil{
-		log.Info("recBlockVoteRound2Handler err:", err)
+	vc,err:=redis.ToInt(conn.Do("LLEN", v.Hash+"round2"+ctx.req.Host+timesS+tIBS))
+	if err!=nil{
+		log.Info("recBlockVoteRound2Handler err LLEN:",err)
 	}
 	log.Info("recBlockVoteRound2Handler revoteCount : ",vc)
 	if vc == Nodes{
 		log.Info("statistic the votes")
-		go statistic(v.Hash)
+		go statistic(v.Hash,ctx.req.Host+timesS+tIBS)
 	}
 	return nil, nil
 }
 
-func statistic(hash string){
+func statistic(hash string,host string){
 	//statistic 2 round vote
 	// then decide whether store the block or not
 	if blockState.Checks(hash){
@@ -60,9 +73,15 @@ func statistic(hash string){
 	}
 	conn := redis.Pool.Get()
 	defer conn.Close()
-	vs,err := rd.ByteSlices(conn.Do("SMEMBERS", hash+"round2"))
+
+	//vs,err := rd.ByteSlices(conn.Do("SMEMBERS", hash+"round2"))
+	//if err != nil{
+	//	log.Info("recBlockVoteRound2Handler err SMEMBERS: ", err)
+	//}
+
+	vs,err := rd.ByteSlices(conn.Do("LRANGE", hash+"round2"+host,0,-1))
 	if err != nil{
-		log.Info("recBlockVoteRound2Handler err SMEMBERS: ", err)
+		log.Info("recBlockVoteRound2Handler err LRANGE: ", err)
 	}
 	revotes := []ReVote{}
 	for _,data := range vs{

@@ -1,25 +1,31 @@
 package net
 
 import (
-
+	"fmt"
 	"github.com/ssbc/common"
 	"sync"
+	"time"
 
 	"github.com/cloudflare/cfssl/log"
-	"time"
 )
 
 var (
-	Nodes = 1
-	Urls []string = []string{"http://192.168.72.1:8000"}
-	isSelfLeader bool = true  //leader
+	Nodes = 4
+	Urls []string = []string{
+		"http://127.0.0.1:8000",
+		"http://127.0.0.1:8001",
+		"http://127.0.0.1:8002",
+		"http://127.0.0.1:8003",
+	}
+	isSelfLeader bool = false  //leader
 	blockState BlockState
 	voteCounts int = 1
 	Ports string
 	Sender string = "windows"
 	signatures map[string][]byte
 	senders map[string]string
-	transinblock int = 6000
+	transinblock int = 100
+	MaxTransInBlock int = 3000
 	transtoredis int = 300000
 	times int = 0
 	rounds int = 10
@@ -88,7 +94,7 @@ func (bs *BlockState) StoreBlock(){
 	bs.Lock()
 	defer bs.Unlock()
 	log.Info("store the block into Mysql")
-	log.Info("Successfully stored the block", bs.tmpBlock)
+	//log.Info("Successfully stored the block", bs.tmpBlock)
 	common.Blockchains <- bs.tmpBlock
 	bs.currBlock = bs.tmpBlock
 
@@ -110,18 +116,37 @@ func (bs *BlockState) CheckAndStore(hash string){
 	log.Info("store the block")
 	log.Info("store the block into Mysql")
 	//lib.Db.insert(block)
-	log.Info("Successfully stored the block", bs.tmpBlock)
+	//log.Info("Successfully stored the block", bs.tmpBlock)
 	common.Blockchains <- bs.tmpBlock
 	bs.currBlock = bs.tmpBlock
 	//send block to sc
 	//sendTxToSC(bs.currBlock)
-	t2 = time.Now()
-	log.Info("duration: ",t2.Sub(t1))
-	log.Info("times and len of blockchain: ", times+1, len(common.Blockchains))
+	if isSelfLeader{
+		//TPS估算
+		t2 = time.Now()
+		dura:=t2.Sub(t1).Seconds()
+		log.Info("duration: ",t2.Sub(t1))
+		log.Info("times and len of blockchain: ", times+1, len(common.Blockchains))
+		totalTrans:=float64((times+1)*transinblock)
+		tps:=totalTrans/dura
+		fmt.Println("TransInBlock=",transinblock,", Rounds=",times,", TotalTrans=",totalTrans,", Duration=",dura,", TPS=",tps)
+	}
+
 	if times + 1 < rounds{
 		times++
 		//time.Sleep(time.Second)
-		go SendTrans()
+		//只有主节点才能继续发起交易
+		if isSelfLeader{
+			go SendTrans()
+		}
+	}else {
+		//达到了轮次要求
+		times=0//重置
+		flag=true //接收交易重置+起始时间重置
+		transinblock=transinblock+100 //每次加一百
+		if isSelfLeader && transinblock<=MaxTransInBlock{
+			go SendTrans()
+		}
 	}
 }
 

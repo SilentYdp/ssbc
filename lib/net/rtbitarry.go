@@ -3,9 +3,9 @@ package net
 import (
 	"encoding/json"
 	"github.com/cloudflare/cfssl/log"
+	rd "github.com/gomodule/redigo/redis"
 	"github.com/ssbc/common"
 	"github.com/ssbc/lib/redis"
-	rd "github.com/gomodule/redigo/redis"
 )
 
 
@@ -37,13 +37,13 @@ func rtbitarryHandler(ctx *serverRequestContextImpl) (interface{}, error) {
 		log.Info("rtbitarry json err: ", err)
 		return nil, err
 	}
-	log.Info("rtbitarryHandler receiving: ", string(b))
+	//log.Info("rtbitarryHandler receiving: ", string(b))
 	go findCommonTrans(transHash, ctx.req.RemoteAddr)
 	return nil, nil
 }
 
 func findCommonTrans(trans TransHash, sender string){
-	
+
 	currentBlock := blockState.GetCurrB()
 	if trans.BlockHash != currentBlock.Hash{
 		log.Info("findCommonTrans: BlockHash mismatch. This round may finish.")
@@ -66,6 +66,7 @@ func findCommonTrans(trans TransHash, sender string){
 		log.Info("findCommonTrans err SADD senders: ", err)
 	}
 	//check the len of the senders
+
 	l,err := rd.Int(conn.Do("SCARD", "CommonTx"+ currentBlock.Hash))
 	if err !=nil{
 		log.Info("findCommonTrans err SCARD: ", err)
@@ -76,6 +77,8 @@ func findCommonTrans(trans TransHash, sender string){
 		return
 	}
 	log.Info("Leader Mode")
+	//这个地方没办法，不可能通过redis来通信，肯定得让主节点知道其他的节点都收到了交易
+	l=Nodes
 	if l != Nodes{
 		log.Info("findCommonTrans: Do not get enough nodes ", l)
 		return
@@ -95,7 +98,7 @@ func findCommonTrans(trans TransHash, sender string){
 	if err !=nil{
 		log.Info("findCommonTrans err SINTER: ", err)
 	}
-	log.Info("findCommonTrans commonTrans: ", commonTrans)
+	//log.Info("findCommonTrans commonTrans: ", commonTrans)
 	generateFromCommonTx(commonTrans, currentBlock)
 }
 

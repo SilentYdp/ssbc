@@ -16,6 +16,7 @@ limitations under the License.
 package main
 
 import (
+  "github.com/cloudflare/cfssl/log"
   "os"
 )
 
@@ -31,6 +32,19 @@ func main() {
 
 }
 func RunMain(args []string) error {
+  //主节点log日志重定向
+  //os.Stderr = f
+  if os.Args[3]=="8000"{
+    if isExist("log"){
+      os.Remove("log")
+    }
+    f, _ := os.OpenFile("log", os.O_WRONLY|os.O_CREATE|os.O_SYNC|os.O_APPEND,0755)
+    os.Stdout = f
+    defer f.Close()
+  }
+
+
+
   // Save the os.Args
   saveOsArgs := os.Args
   os.Args = args
@@ -48,4 +62,20 @@ func RunMain(args []string) error {
   os.Args = saveOsArgs
 
   return err
+}
+
+//判断文件或文件夹是否存在
+func isExist(path string) bool {
+  _, err := os.Stat(path)
+  if err != nil {
+    if os.IsExist(err) {
+      return true
+    }
+    if os.IsNotExist(err) {
+      return false
+    }
+    log.Info(err)
+    return false
+  }
+  return true
 }
