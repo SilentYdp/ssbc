@@ -1,8 +1,12 @@
 package common
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
+	"encoding/pem"
 	"strconv"
 	"sync"
 	"time"
@@ -17,6 +21,12 @@ type Block struct {
 	Signature string `db:Signature`
 	Hash      string `db:Hash`
 	TX 		  []Transaction
+}
+
+type BlockMsg struct {
+	Bc  Block
+	Sign []byte
+	Pk   []byte
 }
 
 type BlockHeader struct{
@@ -35,6 +45,11 @@ type Transaction struct{
 	Signature string
 	Message string
 }
+
+var (
+	PrivateKey []byte
+	PublicKey  []byte
+)
 
 var Blockchains = make(chan Block , 100000)
 
@@ -87,6 +102,8 @@ func GenerateBlock(oldBlock Block, newBlock Block) Block {
 
 func Init(){
 	Tx100 = generateTx()
+	PrivateKey,PublicKey=GetKeyPair()
+	log.Info("Keys Init Successfully.")
 	genesisBlock  := Block{0,"","","","","",nil}
 	genesisBlock .Hash = calculateHash(genesisBlock)
 	genesisBlock.Merkle = genesisBlock.GenerateMerkelRoot()
@@ -94,8 +111,6 @@ func Init(){
 	Blockchains <- genesisBlock
 	B = genesisBlock
 	log.Info("Block Init Successfully.")
-
-
 }
 
 func generateTx()[]Transaction{
@@ -112,6 +127,31 @@ func generateTx()[]Transaction{
 		res = append(res, tmp)
 	}
 	return res
+}
+//生成本节点的公私钥
+func GetKeyPair() (prvkey, pubkey []byte) {
+	// 生成私钥文件
+	privateKey, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		panic(err)
+	}
+	derStream := x509.MarshalPKCS1PrivateKey(privateKey)
+	block := &pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: derStream,
+	}
+	prvkey = pem.EncodeToMemory(block)
+	publicKey := &privateKey.PublicKey
+	derPkix, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		panic(err)
+	}
+	block = &pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: derPkix,
+	}
+	pubkey = pem.EncodeToMemory(block)
+	return
 }
 
 func (b *Block) GenerateMerkelRoot() string{

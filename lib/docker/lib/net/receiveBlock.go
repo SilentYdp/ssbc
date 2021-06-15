@@ -49,7 +49,7 @@ func receiveBlockHandler(ctx *serverRequestContextImpl) (interface{}, error) {
 		log.Info("ERR receiveBlockHandler: ", err)
 	}
 	log.Info("receiveBlockHandler newBlock: ", newBlock)
-	go smartContractExcu(newBlock)
+	smartContractExcu(newBlock)
 
 
 	return nil, nil
@@ -75,7 +75,7 @@ func IsSmartContract(tx *common.Transaction)bool{
 
 func txToSmartContract(tx *common.Transaction){
 	if tx.To == "lcssc" || tx.To == "0"{
-		go lcssc(tx)
+		lcssc(tx)
 	}else{
 		client := &Client{
 			Url: scIP[tx.To],
@@ -144,7 +144,7 @@ func lcssc(tx *common.Transaction){
 			newtx := common.Transaction{"lcssc", "lcssc", time.Now().String(), "signature", string(b)}
 			sendTx(newtx)
 		case "update":
-			go update(lcc)
+			update(lcc)
 		}
 	}
 }

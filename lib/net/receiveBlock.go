@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"github.com/ssbc/lib/redis"
 	rd "github.com/gomodule/redigo/redis"
+	"github.com/ssbc/util"
 	"time"
 )
 
@@ -18,17 +19,35 @@ func receiveBlock(s *Server)*serverEndpoint{
 }
 
 func receiveBlockHandler(ctx *serverRequestContextImpl) (interface{}, error) {
-	b,err := ctx.ReadBodyBytes()
-	if err !=nil{
-		log.Info("ERR receiveBlockHandler: ", err)
+	b:=make([]byte,0)
+	if NeedZip{
+		bzip,err := ctx.ReadBodyBytes()
+		if err !=nil{
+			log.Info("ERR receiveBlockHandler: ", err)
+		}
+		//解压缩
+		b=util.DeCompress(bzip)
+	}else {
+		b,_=ctx.ReadBodyBytes()
 	}
-	log.Info("receiveBlockHandler: ",string(b))
-	newBlock := &common.Block{}
-	err = json.Unmarshal(b, newBlock)
-	if err !=nil{
-		log.Info("ERR receiveBlockHandler: ", err)
+
+	//log.Info("receiveNewBlock")
+	bs:=common.BlockMsg{}
+	json.Unmarshal(b,&bs)
+	//先进行验签
+	data,_:=json.Marshal(bs.Bc)
+	if !util.RsaVerySignWithSha256(data,bs.Sign,bs.Pk){
+		log.Info("[receiveBlockHandler] 验签不通过")
+		return nil, nil
 	}
-	log.Info("receiveBlockHandler newBlock: ", newBlock)
+
+	//newBlock := &common.Block{}
+	//err := json.Unmarshal(b, newBlock)
+	//if err !=nil{
+	//	log.Info("ERR receiveBlockHandler: ", err)
+	//}
+	newBlock:=&bs.Bc
+	log.Info("receiveBlockHandler newBlock")
 	if !blockState.Checkblock(newBlock){
 		log.Info("receiveBlockHandler: Hash mismatch. This round may finish")
 		return nil, nil
@@ -42,11 +61,9 @@ func receiveBlockHandler(ctx *serverRequestContextImpl) (interface{}, error) {
 		if times + 1 < rounds{
 			times++
 			//time.Sleep(time.Second)
-			go SendTrans()
+			SendTransV2()
 		}
 		return nil, nil
-
-
 	}
 	go verify(newBlock)
 	return nil, nil
@@ -67,7 +84,14 @@ func verify(block *common.Block){
 		log.Info("verify_block: ", err)
 	}
 	log.Info("vote: ", string(b))
-	Broadcast("recBlockVoteRound1", b)
+
+	//先进行签名
+	vs:=VoteMsg{}
+	vs.Pk=common.PublicKey
+	vs.Vt=*v
+	vs.Sign=util.RsaSignWithSha256(b,common.PrivateKey)
+	vsB,_:=json.Marshal(vs)
+	Broadcast("recBlockVoteRound1", vsB)
 }
 
 
@@ -82,11 +106,20 @@ func verify_block(block *common.Block)bool{
 		log.Info("verify block: Signature mismatch")
 		return false
 	}
-	return verifyBlockTx(block,&currentBlock)
+	return verifyBlockTxV2(block,&currentBlock)
+}
+
+func verifyBlockTxV2(b *common.Block, currentBlock *common.Block)bool{
+	return true
+	if len(b.TX)!=len(commonTransList){
+		log.Info("len b.Tx=",len(b.TX),",lencommonTransList=",len(commonTransList))
+		return false
+	}
+	return true
 }
 
 func verifyBlockTx(b *common.Block, currentBlock *common.Block)bool{
-
+	return true
 	transCache := []interface{}{"verifyBlockTxCache"+b.Hash}
 	for _,data := range b.TX{
 		b,err := json.Marshal(data)
@@ -104,7 +137,13 @@ func verifyBlockTx(b *common.Block, currentBlock *common.Block)bool{
 	if err != nil{
 		log.Info("verifyBlockTx err SADD: ", err)
 	}
-	commonTrans,err := rd.Strings(conn.Do("SINTER", "verifyBlockTxCache"+b.Hash, "CommonTxCache4verify"+ currentBlock.Hash))
+
+	//使用的是用一个redis，在分布式的场景中无法如此判别
+	//commonTrans,err := rd.Strings(conn.Do("SINTER", "verifyBlockTxCache"+b.Hash, "CommonTxCache4verify"+ currentBlock.Hash))
+	//commonTrans,err := rd.Strings(conn.Do("SMEMBERS", "verifyBlockTxCache"+b.Hash))
+	commonTrans,err := rd.Strings(conn.Do("SINTER", "verifyBlockTxCache"+b.Hash, "verifyBlockTxCache"+b.Hash))
+
+
 	if err !=nil{
 		log.Info("verifyBlockTx err SINTER: ", err)
 	}

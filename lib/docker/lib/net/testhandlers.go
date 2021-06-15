@@ -64,7 +64,7 @@ func testinfoHandler(ctx *serverRequestContextImpl) (interface{}, error) {
 //	b,_ = json.Marshal(newTx)
 //	go Broadcast("receiveTx", b)
 //	return nil,nil
-	go SendTrans()
+	SendTrans()
 	resp := TestInfoResponseNet{
 		TName: "hello",
 		Version: "world",

@@ -30,13 +30,9 @@ type Server struct {
 	listener net.Listener
 	// An error which occurs when serving
 	serveError error
-
-
-
 	wait chan bool
 	// Server mutex
 	mutex sync.Mutex
-
 }
 
 func (s *Server) Init(renew bool) (err error) {
@@ -147,6 +143,11 @@ func (s *Server) listenAndServe() (err error) {
 	if c.Port == 0 {
 		c.Port = DefaultServerPort
 	}
+
+	//默认端口的节点为主节点
+	if c.Port==DefaultServerPort{
+		isSelfLeader=true
+	}
 	addr := net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
 	var addrStr string
 	addrStr = fmt.Sprintf("http://%s", addr)
@@ -165,7 +166,7 @@ func (s *Server) listenAndServe() (err error) {
 		return s.serve()
 	}
 	s.wait = make(chan bool)
-	go s.serve()
+	s.serve()
 
 	return nil
 }
@@ -213,6 +214,7 @@ func (s *Server) closeListener() error {
 func (s *Server) registerHandlers() {
 	s.mux = gmux.NewRouter()
 	s.registerHandler("testinfo", newTestInfoEndpoint(s))
+	s.registerHandler("sendTxs", sendTxs(s))
 	s.registerHandler("recTransHash", receive_trans_bitarry(s))
 	s.registerHandler("recBlock", receiveBlock(s))
 	s.registerHandler("recBlockVoteRound1", recBlockVoteRound1(s))

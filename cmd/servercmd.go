@@ -87,8 +87,11 @@ func (s *ServerCmd) init() {
 		//}
 		log.Info("Mysql Connection Open Successfully")
 		common.Init()
+		//net.InitTransInRedis()
+		log.Info("Trans Init to Redis Successfully")
 		net.Init()
 		net.Flushall()
+		net.InitTranToRedis()
 		net.Ports = strconv.Itoa(s.getServer().Config.Port)
 		log.Info("Ports :",net.Ports)
 		err := s.getServer().Start()

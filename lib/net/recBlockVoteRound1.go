@@ -4,9 +4,15 @@ import (
 	"encoding/json"
 	"github.com/cloudflare/cfssl/log"
 	rd "github.com/gomodule/redigo/redis"
+	"github.com/ssbc/common"
 	"github.com/ssbc/lib/redis"
+	"github.com/ssbc/util"
 	"strconv"
+	"sync"
 )
+
+var round1Map sync.Map
+
 
 type Vote struct{
 	Sender string
@@ -14,12 +20,107 @@ type Vote struct{
 	Vote bool
 }
 
+type VoteMsg struct {
+	Vt  Vote
+	Sign []byte
+	Pk   []byte
+}
+
 func recBlockVoteRound1(s *Server)*serverEndpoint{
 	return &serverEndpoint{
 		Methods: []string{ "POST"},
-		Handler: recBlockVoteRound1Handler,
+		Handler: recBlockVoteRound1HandlerV2,
 		Server:  s,
 	}
+}
+func vote1(b []byte)  {
+
+	//log.Info("recBlockVoteRound1Handler: ",string(b))
+	//先进行验签
+	vs:=VoteMsg{}
+	json.Unmarshal(b,&vs)
+	data,_:=json.Marshal(vs.Vt)
+	if !util.RsaVerySignWithSha256(data,vs.Sign,vs.Pk){
+		log.Info("[recBlockVoteRound1HandlerV2] 验签不通过")
+		return
+	}
+
+	//v := &Vote{}
+	//err = json.Unmarshal(b, v)
+	//if err !=nil{
+	//	log.Info("ERR recBlockVoteRound1Handler: ", err)
+	//}
+	v:=&vs.Vt
+	log.Info("第一轮投票：",*v)
+	timesS:=strconv.Itoa(times)
+	tIBS:=strconv.Itoa(transinblock)
+	key := timesS + "_" +"_"+tIBS+"_"+ "round1_" + v.Hash
+	if val,ok:=round1Map.Load(key);ok{
+		votes:=val.([]Vote)
+		votes=append(votes,*v)
+		round1Map.Store(key,votes)
+		val,_=round1Map.Load(key)
+		votes=val.([]Vote)
+		if len(votes)==Nodes{
+			//说明广播已收齐
+			log.Info("Received all votes,start round2")
+			//投票鉴别是否投同意
+			count := 0
+			for _, v := range votes {
+				if v.Vote {
+					//同意票+1
+					count++
+				}
+			}
+
+			re := false
+			if float64(count) > float64(Nodes)*0.75 {
+				re = true
+			}
+			//开始第二轮投票
+			rv := ReVote{
+				Sender: Sender,
+				Vote:   votes,
+				Hash:   v.Hash,
+				V:      re,
+			}
+			rvB, _ := json.Marshal(rv)
+			log.Info("recBlockVoteRound1Handler vote: ", string(rvB))
+			//要先签名
+			rvMsg:=ReVoteMsg{}
+			rvMsg.Pk=common.PublicKey
+			rvMsg.RV=rv
+			rvMsg.Sign=util.RsaSignWithSha256(rvB,common.PrivateKey)
+
+			rvMsgB,_:=json.Marshal(rvMsg)
+
+			Broadcast("recBlockVoteRound2", rvMsgB)
+		}else {
+			//说明广播还没收齐
+			log.Info("Round1 Not receive all votes:", votes)
+			return
+		}
+	}else {
+		votes:=make([]Vote,0)
+		votes=append(votes,*v)
+		round1Map.Store(key,votes)
+		return
+	}
+	return
+}
+
+func recBlockVoteRound1HandlerV2(ctx *serverRequestContextImpl) (interface{}, error) {
+	//第一轮投票使用内存取代redis统计
+	//为了防止并发读写map导致错乱，使用协程安全的sync.Map
+	//第一轮投票使用内存取代redis统计
+	//为了防止并发读写map导致错乱，使用协程安全的sync.Map
+	b,err := ctx.ReadBodyBytes()
+	if err !=nil{
+		log.Info("ERR recBlockVoteRound1Handler: ", err)
+		return nil, nil
+	}
+	go vote1(b)
+	return nil, nil
 }
 
 func recBlockVoteRound1Handler(ctx *serverRequestContextImpl) (interface{}, error) {
@@ -62,7 +163,7 @@ func recBlockVoteRound1Handler(ctx *serverRequestContextImpl) (interface{}, erro
 	log.Info("recBlockVoteRound1Handler voteCount : ",vc)
 	if vc == Nodes{
 		log.Info("voteForRoundTwo")
-		go voteForRoundNew(v.Hash,ctx.req.Host+timesS+tIBS)
+		voteForRoundNew(v.Hash,ctx.req.Host+timesS+tIBS)
 	}
 	return nil, nil
 }

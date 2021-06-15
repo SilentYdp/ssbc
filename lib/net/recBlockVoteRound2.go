@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"github.com/ssbc/lib/redis"
 	rd "github.com/gomodule/redigo/redis"
+	"github.com/ssbc/util"
 	"strconv"
+	"sync"
 )
 
 type ReVote struct{
@@ -15,12 +17,90 @@ type ReVote struct{
 	V bool
 }
 
+type ReVoteMsg struct {
+	RV  ReVote
+	Pk  []byte
+	Sign []byte
+}
+var round2Map sync.Map
+
 func recBlockVoteRound2(s *Server)*serverEndpoint{
 	return &serverEndpoint{
 		Methods: []string{ "POST"},
-		Handler: recBlockVoteRound2Handler,
+		Handler: recBlockVoteRound2HandlerV2,
 		Server:  s,
 	}
+}
+func vote2(b []byte)  {
+
+	//log.Info("recBlockVoteRound2Handler: ",string(b))
+	//先进行验签
+	rvMsg:=ReVoteMsg{}
+	json.Unmarshal(b,&rvMsg)
+	data,_:=json.Marshal(rvMsg.RV)
+	if !util.RsaVerySignWithSha256(data,rvMsg.Sign,rvMsg.Pk){
+		log.Info("[recBlockVoteRound2HandlerV2] 验签失败")
+		return
+	}
+
+	v:=&rvMsg.RV
+	//v := &ReVote{}
+	//err = json.Unmarshal(b, v)
+	//if err !=nil{
+	//	log.Info("ERR recBlockVoteRound2Handler: ", err)
+	//}
+	log.Info("第二轮投票")
+	timesS:=strconv.Itoa(times)
+	tIBS:=strconv.Itoa(transinblock)
+
+	key := timesS + "_" +"_"+tIBS+"_"+ "round2_" + v.Hash
+	if val,ok:=round2Map.Load(key);ok{
+		votes:=val.([]ReVote)
+		votes=append(votes,*v)
+		round2Map.Store(key,votes)
+		val,_=round2Map.Load(key)
+		votes=val.([]ReVote)
+		if len(votes)==Nodes{
+			//说明广播已收齐
+			log.Info("Received all votes")
+			if blockState.Checks(v.Hash){
+				log.Info("store_block: This round may finished")
+				return
+			}
+			//投票鉴别是否投同意
+			count := 0
+			for _, v := range votes {
+				if v.V {
+					//同意票+1
+					count++
+				}
+			}
+			if float64(count) > float64(Nodes)*0.75 {
+				log.Info("recBlockVoteRound2Handler: vote round tow has received more than 2/3 affirmative votes")
+				go store_block(v.Hash)
+			}
+		}else {
+			//说明广播还没收齐
+			log.Info("Round2 Not receive all votes:", votes)
+			return
+		}
+	}else {
+		votes:=make([]ReVote,0)
+		votes=append(votes,*v)
+		round2Map.Store(key,votes)
+		return
+	}
+	return
+}
+func recBlockVoteRound2HandlerV2(ctx *serverRequestContextImpl) (interface{}, error) {
+	//和统计第一次投票一样使用协程安全的map取代redis
+	//和统计第一次投票一样使用协程安全的map取代redis
+	b,err := ctx.ReadBodyBytes()
+	if err !=nil{
+		log.Info("ERR recBlockVoteRound2Handler: ", err)
+	}
+	go vote2(b)
+	return nil, nil
 }
 
 func recBlockVoteRound2Handler(ctx *serverRequestContextImpl) (interface{}, error) {
@@ -109,6 +189,4 @@ func statistic(hash string,host string){
 
 func store_block(hash string){
 	blockState.CheckAndStore(hash)
-
-
 }

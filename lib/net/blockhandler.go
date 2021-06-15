@@ -16,6 +16,7 @@ import (
 	"strconv"
 )
 
+const TransPool  = "transPool"
 type TestContent struct {
 	x string
 }
@@ -129,6 +130,27 @@ func marshalTrans(trans chan []byte){
 
 }
 
+//func InitTransInRedis()  {
+//	recTrans()
+//}
+
+func InitTranToRedis()  {
+	recTransV2()
+}
+
+func recTransV2()  {
+	//直接把交易列表序列化之后一起放入redis，而不是挨个序列化挨个放进去
+	//for循环里序列化相当耗时
+	trans := generateTx()
+	transB,_:=json.Marshal(trans)
+	conn := redis.Pool.Get()
+	defer conn.Close()
+	_,err := conn.Do("SET",TransPool,string(transB))
+	if err != nil{
+		log.Info("recTrans err: ", err)
+	}
+}
+
 func recTrans(){
 	//接受交易，验证 存入redis
 	trans := generateTx()
@@ -174,7 +196,22 @@ func transToRedis(trans chan []byte){
 func verifyTrans(tran common.Transaction)bool{
 	return true
 }
+func pullTransV2() []common.Transaction {
+	//直接取出交易对象
+	conn := redis.Pool.Get()
+	defer conn.Close()
+	val,err:=rd.String(conn.Do("GET",TransPool))
+	if err!=nil{
+		log.Error("[pullTransV2] err:",err)
+	}
 
+	trans:=make([]common.Transaction,0)
+	err=json.Unmarshal([]byte(val),&trans)
+	if err!=nil{
+		log.Error("[pullTransV2] Unmarshal err:",err)
+	}
+	return trans[:transinblock]
+}
 func pullTrans()[][]byte{
 	conn := redis.Pool.Get()
 	defer conn.Close()

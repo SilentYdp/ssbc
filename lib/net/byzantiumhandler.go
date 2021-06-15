@@ -12,10 +12,10 @@ import (
 var (
 	Nodes = 4
 	Urls []string = []string{
-		"http://127.0.0.1:8000",
-		"http://127.0.0.1:8001",
-		"http://127.0.0.1:8002",
-		"http://127.0.0.1:8003",
+		"http://192.168.1.101:8000",
+		"http://192.168.1.155:8001",
+		"http://192.168.1.102:8002",
+		"http://192.168.1.104:8003",
 	}
 	isSelfLeader bool = false  //leader
 	blockState BlockState
@@ -24,11 +24,13 @@ var (
 	Sender string = "windows"
 	signatures map[string][]byte
 	senders map[string]string
-	transinblock int = 100
-	MaxTransInBlock int = 3000
+	transinblock int = 4000
+	MaxTransInBlock int = 6000
+	TransChangeStep = 200  //每一个大轮次区块中交易数量的变化幅度
 	transtoredis int = 300000
 	times int = 0
 	rounds int = 10
+	NeedZip = false   //是否需要压缩与解压缩（配套使用）
 	Testflag = ""
 )
 
@@ -135,17 +137,16 @@ func (bs *BlockState) CheckAndStore(hash string){
 	if times + 1 < rounds{
 		times++
 		//time.Sleep(time.Second)
-		//只有主节点才能继续发起交易
 		if isSelfLeader{
-			go SendTrans()
+			go sendTrans()
 		}
 	}else {
 		//达到了轮次要求
 		times=0//重置
 		flag=true //接收交易重置+起始时间重置
-		transinblock=transinblock+100 //每次加一百
+		transinblock=transinblock+TransChangeStep //每次加
 		if isSelfLeader && transinblock<=MaxTransInBlock{
-			go SendTrans()
+			go sendTrans()
 		}
 	}
 }

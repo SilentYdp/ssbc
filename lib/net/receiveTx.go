@@ -28,7 +28,7 @@ func receiveTxHandler(ctx *serverRequestContextImpl) (interface{}, error) {
 	}
 	log.Info("receiveBlockHandler newTx: ", *newTx)
 	if verifyTx(newTx){
-		go CacheTx(b)
+		CacheTx(b)
 	}
 
 	return nil, nil

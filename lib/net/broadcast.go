@@ -49,9 +49,6 @@ func Broadcast(s string,reqBody []byte)error{
 
 	for _,client := range clients{
 
-
-
-
 		endPoint := client.Url + "/" + s
 
 		req,err := NewPost(endPoint, reqBody)
